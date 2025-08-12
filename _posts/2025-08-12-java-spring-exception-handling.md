@@ -7,22 +7,27 @@ date: 2025-08-12
 
 In Spring Boot controllers, it’s common to return either a successful DTO response or some kind of error response directly from the controller method.
 
-For example, in a simple “get current user” endpoint, we might do:
+For example, in this endpoint, we might do:
 
 ```java
-@GetMapping("/me")
-public ResponseEntity<UserDto> getCurrentUser() {
-    var authentication = SecurityContextHolder.getContext().getAuthentication();
-    var userId = (Long) authentication.getPrincipal();
-
-    var user = userRepository.findById(userId).orElse(null);
-    if (user == null) {
-        return ResponseEntity.notFound().build();
+@PostMapping
+public ResponseEntity<UserDto> createUser(@Valid @RequestBody CreateUserDto data, UriComponentsBuilder uriBuilder) {
+    if (userRepository.existsByEmail(data.getEmail())) {
+        return ResponseEntity.badRequest().build(); // Return Bad request error
     }
 
-    var userDto = userMapper.toDto(user);
+    var userEntity = userMapper.toEntity(data);
+    userEntity.setPassword(passwordEncoder.encode(data.getPassword()));
+    userEntity.setRole(Role.USER);
+    userRepository.save(userEntity);
 
-    return ResponseEntity.ok(userDto);
+    var userDto = userMapper.toDto(userEntity);
+    var uri = uriBuilder
+        .path("/users/{id}")
+        .buildAndExpand(userDto.getId())
+        .toUri();
+
+    return ResponseEntity.created(uri).body(userDto); // Success, return the DTO
 }
 ```
 
@@ -32,7 +37,7 @@ but as soon as you want to add a custom error message:
 @PostMapping
 public ResponseEntity<?> createUser(@Valid @RequestBody CreateUserDto data, UriComponentsBuilder uriBuilder) {
     if (userRepository.existsByEmail(data.getEmail())) {
-        return ResponseEntity.badRequest().body(Map.of("error", "Email is already in use"));
+        return ResponseEntity.badRequest().body(Map.of("error", "Email is already in use")); // << Custom error message
     }
 
     var userEntity = userMapper.toEntity(data);
@@ -46,13 +51,13 @@ public ResponseEntity<?> createUser(@Valid @RequestBody CreateUserDto data, UriC
             .buildAndExpand(userDto.getId())
             .toUri();
 
-    return ResponseEntity.created(uri).body(userDto);
+    return ResponseEntity.created(uri).body(userDto); // Success, return the DTO
 }
 ```
 
 you end up losing the strong return type and replacing it with `?` like so `ResponseEntity<?>`. Not only that, this approach can quickly get messy, especially if you start returning different error formats from different endpoints.
 
-So, how to solve this? There are several options:
+There are several options to solve this:
 
 ## Option 1: Use a common response wrapper
 
@@ -100,7 +105,7 @@ public ResponseEntity<ApiResponse<UserDto>> createUser(@Valid @RequestBody Creat
 - Strong typing: `ApiResponse<CheckoutResponseDto>` is consistent for both success and error cases. A wrapper type guarantees that
 the client always gets a predictable JSON structure, e.g.
 
-```json lines
+```json
 // success
 {
   "data": { "orderId": 123 },
@@ -113,6 +118,7 @@ the client always gets a predictable JSON structure, e.g.
   "error": { "message": "Cart not found" }
 }
 ```
+
 - Easy to extend with metadata (timestamps, status codes, etc.).
 
 **Cons:**
@@ -289,9 +295,9 @@ public ResponseEntity<ApiResponse<UserDto>> createUser(@Valid @RequestBody Creat
 }
 ```
 
-Now you achieve:
+Some of the advantages of this approach:
 
-- Consistent JSON shape `{ "data": ..., "error": ... }` for both success & error.
+- Consistent JSON shape `{ "data": ..., "error": ... }` for both success and error.
 - Clean controller methods (no more `if (...) return error;`).
 - Centralized error handling.
 
@@ -382,3 +388,5 @@ public ResponseEntity<ApiResponse<CheckoutResponseDto>> checkout(
     return ResponseEntity.ok(ApiResponse.success(new CheckoutResponseDto(order.getId())));
 }
 ```
+
+glhf;
