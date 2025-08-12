@@ -5,7 +5,9 @@ date: 2025-08-12
 
 # Exception handling in Spring Boot with Java
 
-Sometimes a controller can return a result or throw an exception. Like this
+In Spring Boot controllers, it’s common to return either a successful DTO response or some kind of error response directly from the controller method.
+
+For example, in a simple “get current user” endpoint, we might do:
 
 ```java
 @GetMapping("/me")
@@ -24,13 +26,13 @@ public ResponseEntity<UserDto> getCurrentUser() {
 }
 ```
 
-but as soon as you want a custom exception message
+but as soon as you want to add a custom error message:
 
 ```java
 @PostMapping
 public ResponseEntity<?> createUser(@Valid @RequestBody CreateUserDto data, UriComponentsBuilder uriBuilder) {
     if (userRepository.existsByEmail(data.getEmail())) {
-        return ResponseEntity.badRequest().body(new ErrorDto("Email already in use"));
+        return ResponseEntity.badRequest().body(Map.of("error", "Email is already in use"));
     }
 
     var userEntity = userMapper.toEntity(data);
@@ -48,9 +50,9 @@ public ResponseEntity<?> createUser(@Valid @RequestBody CreateUserDto data, UriC
 }
 ```
 
-we end up losing the strong return type and replacing it with `?` like so `ResponseEntity<?>`.
+you end up losing the strong return type and replacing it with `?` like so `ResponseEntity<?>`. Not only that, this approach can quickly get messy, especially if you start returning different error formats from different endpoints.
 
-So, how to solve this? There are 3 options:
+So, how to solve this? There are several options:
 
 ## Option 1: Use a common response wrapper
 
