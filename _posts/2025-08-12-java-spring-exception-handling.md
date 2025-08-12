@@ -1,6 +1,5 @@
 ---
-layout: post
-title: "Spring Boot (with Java) exception handling"
+title: "Java Spring Exception Handling"
 date: 2025-08-12
 ---
 
