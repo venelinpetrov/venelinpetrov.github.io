@@ -96,13 +96,13 @@ public ResponseEntity<ApiResponse<UserDto>> createUser(@Valid @RequestBody Creat
 
     // ...
 
-    return ResponseEntity.created(uri).body(userDto);
+    return ResponseEntity.created(uri).body(ApiResponse.success(userDto));
 }
 ```
 
 **Pros:**
 
-- Strong typing: `ApiResponse<CheckoutResponseDto>` is consistent for both success and error cases. A wrapper type guarantees that
+- Strong typing: `ApiResponse<UserDto>` is consistent for both success and error cases. A wrapper type guarantees that
 the client always gets a predictable JSON structure, e.g.
 
 ```json
@@ -220,7 +220,7 @@ public class GlobalExceptionHandler {
 - Discoverability: With return types, you can see possible outcomes in the method signature (`ResponseEntity<ApiResponse<...>>`).
   With exceptions, the signature may not show what can go wrong unless you document it.
 
-**Note:** That said, in Spring MVC this pattern is extremely common. The framework is designed so that you can throw custom exceptions and handle them centrally via `@ControllerAdvice`. It keeps controllers clean and avoids `if (...) return error;` noise.
+**Note:** That said, in Spring MVC this pattern is extremely common. The framework is designed so that you can throw custom exceptions and handle them centrally via `@ControllerAdvice`.
 
 ## Option 4: Hybrid of Option 1 + Option 3
 
