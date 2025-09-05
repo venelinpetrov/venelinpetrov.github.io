@@ -3,8 +3,6 @@ title: "JWT authentication with Spring Boot and Web clients"
 date: 2025-09-05
 ---
 
-# JWT authentication with Spring Boot and Web clients
-
 This article is a high level overview of the JWT authentication process in the context of Spring Boot and any web client.
 
 ## The backend

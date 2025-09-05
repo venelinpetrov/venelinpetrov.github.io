@@ -1,9 +1,7 @@
 ---
-title: "Java Spring Exception Handling"
+title: "Exception handling in Spring Boot with Java"
 date: 2025-08-12
 ---
-
-# Exception handling in Spring Boot with Java
 
 In Spring Boot controllers, it’s common to return either a successful DTO response or some kind of error response directly from the controller method.
 
