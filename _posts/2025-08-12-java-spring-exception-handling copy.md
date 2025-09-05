@@ -458,4 +458,4 @@ Example JSON:
 
 There is also an [RFC 9457 Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html) that standardizes API error responses. It's worth checking that out too.
 
-I hope this was helpful, glhf :)
+I hope this was helpful, glhf `:)`

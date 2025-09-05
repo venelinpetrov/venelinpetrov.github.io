@@ -1,6 +1,6 @@
 ---
 layout: home
-title: Welcome to My Blog
+title: Welcome Venelin's blog
 ---
 
-This is my personal blog. Below you’ll find my latest posts.
+This is my personal blog about programming.
