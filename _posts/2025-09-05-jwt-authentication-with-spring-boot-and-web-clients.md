@@ -308,19 +308,63 @@ When a web app hits the `/auth/login` endpoint, the backend generates 2 tokens -
 
 The authentication token is short-lived, meaning it will expire soon after it has been issued. We do this for security reasons. If a token leaks somehow, this will minimize the damage, because it will expire in few minutes.
 
-This is where the refresh token comes into play. At some point, the access token eventually expires and the next authenticated request will be denied with http error 401. Because we don't want users to log in every 5 minutes we send them a refresh token too, via a cookie.
+This is where the refresh token comes into play. At some point, the access token eventually expires and the next authenticated request will be denied with http error 401. Because we don't want users to log in every 5 minutes we send them a refresh token too, via a cookie. Note that this token lives much longer, a day, a week, whatever the requirements are.
 
 > **Security note:**
 This cookie MUST be `http only`, which makes it unreachable from JavaScript code. This is extremely important, because if the refresh token leaks, an attacker can forge as many access token as they want.
 
-The `http only` cookies are handled by the browser only. The client doesn't need to do anything special to send them to the backend, they are attached to the request automatically.
+The `http only` cookies are handled by the browser. The client doesn't need to do anything special to send them to the backend, they are attached to the request automatically.
 
 > **Security note:** You must also set the `secure` attribute. This will prevent cookies from being observed by unauthorized parties due to the transmission of the cookie in clear text. Browsers will only send cookies with the `secure` attribute when the request is going to an HTTPS page.
 
-Now, as soon as an authenticated endpoints responds with 401, our client sends `/auth/refresh` request and the cookie with the refresh token goes with it. In turns, the backend checks the validity of the refresh token and if it is valid it creates a new access token and responds to the client with it. The client receives the new access token and sets it **in-memory** for future requests, then retries the previous request with the new access token. This is how we implement a long "user session" with short-lived access token.
+Now, as soon as an authenticated endpoint responds with 401, our client sends `/auth/refresh` request and the cookie with the refresh token goes with it. In turns, the backend checks the validity of the refresh token and if it is valid it creates a new access token and responds to the client with it. The client receives the new access token and sets it **in-memory** for future requests, then retries the previous request with the new access token. This is how we implement a long "user session" with short-lived access token.
 
-> **Security note:** It's tempting to store the access token in a local storage, and some tutorials even suggest it. What they are trying to avoid is logging out the user when they refresh the page. You should never store any security critical information in local storage, because it can be reached via JavaScript and thus makes it vulnerable to XSS attacks. That is why we store the access token in-memory
+> **Security note:** It's tempting to store the access token in a local storage, and some tutorials even suggest it. What they are trying to avoid is logging out the user when the page refreshes. You should never store any security critical information in local storage, because it can be reached via JavaScript and thus makes it vulnerable to XSS attacks. That is why we store the access token in-memory
 
 When the user refreshes the page the in-memory access token is lost, but that's not a problem in our case. The first authenticated request that gets rejected with 401 will trigger the refresh logic, the client will receive the new access token, attach it to this and any future requests until the access token expires again and everything repeats.
+
+## Refreshing refresh tokens
+
+You might be wondering what happens when the refresh token eventually expires too. A common solution is to generate a new refresh token each time the client requests one. This is called a "sliding window". If it hasn't been requested for a long enough time it just expires, at that time the access token expired too and the user is effectively logged out.
+
+## Logging out
+
+What about logging out, indeed? Unlike the traditional session-based authentication, there is no easy way to "revoke the session", because there is no session or state. The whole point of JWT authentication is to be stateless, which solves many problems but also creates this one.
+
+The simplest solution for both, the client and the server is to just wait for the access token to expire (usually 5-10 minutes). The client app just deletes the token from memory and the user is logged out. The access token is still active though, but the security risk is considered very small.
+
+## Security considerations
+
+There is still a problem though, what happens if a user is hacked somehow and you want to minmize damadge by "revoking" their access? You can't. The only possible solution with this setup is to rotate the signing key, but this will affect all your users - they will all be logged out, because their current tokens will have invalid signatures.
+
+This is an escape hatch solution and it is not generally recommended unless the security breach was indeed very serious (e.g. leaking your secrets).
+
+Another approach would be to store refresh tokens server-side (or Redis set) as an "allow list".
+
+```
+refresh_tokens
+- id (jti / uuid)
+- user_id
+- token_hash
+- device_id (optional)
+- issued_at
+- expires_at
+- replaced_by (nullable)    // for rotation chains
+- revoked_at (nullable)
+- reason (nullable)
+```
+
+> **Note** Store refresh tokens hashed!!! Leaking a database with refresh tokens in plain text will be catastriphic.
+
+Do one-time rotation + reuse detection. On every refresh:
+
+- Verify the refresh token by hashing and lookup.
+- If found and not expired/revoked, issue a new access token and a new refresh token.
+- Mark the old refresh token as replaced_by = new_jti and effectively unusable.
+- If an already replaced token is presented (reuse): assume compromise, revoke the entire token family for that user/device.
+
+Optional, but this also allows for revoking device-scoped sessions.
+
+What about already-issued access tokens? You can’t reliably yank purely stateless access tokens already out in the wild. Mitigate by keeping access-token TTL short (e.g. 10 minutes).
 
 I hope this was helpful, glhf `:)`
