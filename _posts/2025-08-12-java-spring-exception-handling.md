@@ -389,4 +389,73 @@ public ResponseEntity<ApiResponse<CheckoutResponseDto>> checkout(
 }
 ```
 
-glhf;
+## The `ErrorDto`
+
+Let's talk about the `ErrorDto` and see how we can improve it.
+
+As you can see it's a single property class, something like this:
+
+```java
+public record ErrorDto(String error) {}
+```
+
+That works fine when you always return one error string. However APIs often need to return several validation errors at once (e.g. "name is required", "phone is required" etc.)
+
+In that case, instead of a plain list of strings, you usually wrap it in an envelope object:
+
+```java
+public record ErrorResponseDto(
+    String message,         // high-level error, e.g. "Validation failed"
+    List<String> errors     // list of detailed messages
+) {}
+```
+
+Example JSON response:
+
+```json
+{
+  "message": "Validation failed",
+  "errors": [
+    "name is required",
+    "phne is required"
+  ]
+}
+```
+
+Why not just return `List<String>`? You could, but it’s not idiomatic because:
+
+- You lose flexibility (can’t easily add fields like `timestamp`, `status`, `path`, etc.).
+- Clients usually expect a consistent error envelope (especially when consuming large APIs).
+
+A richer version would look something like this:
+
+```java
+public record ErrorResponseDto(
+    int status,                  // HTTP status (e.g. 400)
+    String error,                // short reason (e.g. "Bad Request")
+    String message,              // human-readable (e.g. "Validation failed")
+    String path,                 // endpoint (e.g. "/api/products")
+    List<String> errors,         // detailed errors
+    Instant timestamp            // when it happened
+) {}
+```
+
+Example JSON:
+
+```json
+{
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Validation failed",
+  "path": "/api/products",
+  "errors": [
+    "name is required",
+    "email is required"
+  ],
+  "timestamp": "2025-09-05T14:22:30Z"
+}
+```
+
+There is also an [RFC 9457 Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html) that standardizes API error responses. It's worth checking that out too.
+
+I hope this was helpful, glhf :)
