@@ -352,7 +352,7 @@ refresh_tokens
 - reason (nullable)
 ```
 
-> **Note** Store refresh tokens hashed!!! Leaking a database with refresh tokens in plain text will be catastriphic.
+> **Note** Store refresh tokens hashed!!! Leaking a database with refresh tokens in plain text will be catastrophic.
 
 Do one-time rotation + reuse detection. On every refresh:
 
@@ -363,6 +363,6 @@ Do one-time rotation + reuse detection. On every refresh:
 
 Optional, but this also allows for revoking device-scoped sessions.
 
-What about already-issued access tokens? You can’t reliably yank purely stateless access tokens already out in the wild. Mitigate by keeping access-token TTL short (e.g. 10 minutes).
+What about already-issued access tokens? You can’t reliably yank purely stateless access tokens already out in the wild. Mitigate by keeping access-token TTL short (e.g. 5-10 minutes).
 
 I hope this was helpful, glhf `:)`
