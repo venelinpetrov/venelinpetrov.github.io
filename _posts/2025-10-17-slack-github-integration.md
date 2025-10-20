@@ -61,25 +61,25 @@ jobs:
   slack-notifications:
     name: Sends a message to Slack when a pull request is opened
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
+    if: {% raw %}${{ !github.event.pull_request.draft }}{% endraw %}
     steps:
       - name: Post to Slack (v2)
         uses: slackapi/slack-github-action@v2
         with:
           method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          token: {% raw %}${{ secrets.SLACK_BOT_TOKEN }}{% endraw %}
           payload: |
             channel: "<channel_id>"
-            text: "*New PR waiting for review:* <${{ github.event.pull_request.html_url }}|${{ github.event.pull_request.title }}>"
+            text: "*New PR waiting for review:* <{% raw %}${{ github.event.pull_request.html_url }}{% endraw %}|{% raw %}${{ github.event.pull_request.title }}{% endraw %}>"
             blocks:
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*New PR waiting for review:*\n<${{ github.event.pull_request.html_url }}|${{ github.event.pull_request.title }}>"
+                  text: "*New PR waiting for review:*\n<{% raw %}${{ github.event.pull_request.html_url }}{% endraw %}|{% raw %}${{ github.event.pull_request.title }}{% endraw %}>"
               - type: section
                 fields:
                   - type: mrkdwn
-                    text: "*Opened by:*\n${{ github.event.pull_request.user.login }}"
+                    text: "*Opened by:*\n{% raw %}${{ github.event.pull_request.user.login }}{% endraw %}"
 
 ```
 
