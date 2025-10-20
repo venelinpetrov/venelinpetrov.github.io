@@ -87,6 +87,6 @@ jobs:
 
 > IMPORTANT: Don't forget to invite the bot in the channel, otherwise you'll get an error.
 
-> IMPORTANT: It goes without saying, but don't paste you API key inside the yml file, use the `$\{\{ secrets.SLACK_BOT_TOKEN \}\}` variable, as described above!
+> IMPORTANT: It goes without saying, but don't paste you API key inside the yml file, use the `{% raw %}${{ secrets.SLACK_BOT_TOKEN }}{% endraw %}` variable, as described above!
 
 - Use whatever template you like, this is just an example that worked well for us.
