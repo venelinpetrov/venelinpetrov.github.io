@@ -25,7 +25,7 @@ Give it a name (e.g. GitHub PR Bot) and choose your workspace below.
 ### Step 3: Install the app to your workspace
 
 - Scroll up and click the "Install to Workspace" button.
-- Slack will ask you to authorize the app — approve it.
+- Slack will ask you to authorize the app and approve it.
 
 ### Step 4: Copy the bot token
 
