@@ -91,3 +91,68 @@ docker system prune -a
 | `--rm`      | Automatically remove the container after it exits.                                                                            | `docker run --rm ubuntu echo "Hello"`                                 |
 | `-it`       | Interactive + TTY (useful for shells).                                                                                        | `docker run -it ubuntu bash`                                          |
 | `--network` | Connect to a specific Docker network.                                                                                         | `docker run --network my-network myapp`                               |
+| `-q`        | List only image IDs (useful for piping into other commands).                                                                  | `docker images -q`                                                    |
+
+
+## Cleanup
+
+### Remove containers
+
+| Command                    | Description                                    |
+| -------------------------- | ---------------------------------------------- |
+| `docker rm <container>`    | Remove a specific container (must be stopped). |
+| `docker rm -f <container>` | Force-remove a running container.              |
+| `docker container prune`   | Remove **all stopped** containers.             |
+
+
+### Remove images
+
+| Command                          | Description                                           |
+| -------------------------------- | ----------------------------------------------------- |
+| `docker rmi <image>`             | Remove a specific image.                              |
+| `docker rmi $(docker images -q)` | Remove **all images**.                                |
+| `docker image prune`             | Remove **dangling** (unused) images.                  |
+| `docker image prune -a`          | Remove **all unused** images, not just dangling ones. |
+
+### Remove volumes
+
+| Command                     | Description                |
+| --------------------------- | -------------------------- |
+| `docker volume rm <volume>` | Delete a specific volume.  |
+| `docker volume prune`       | Remove all unused volumes. |
+
+### Remove networks
+
+| Command                       | Description                 |
+| ----------------------------- | --------------------------- |
+| `docker network rm <network>` | Delete a specific network.  |
+| `docker network prune`        | Remove all unused networks. |
+
+
+### Global cleanup
+
+| Command                            | Description                                                          |
+| ---------------------------------- | -------------------------------------------------------------------- |
+| `docker system prune`              | Remove stopped containers, unused networks, and dangling images.     |
+| `docker system prune -a`           | Remove **everything not currently in use**, including unused images. |
+| `docker system prune -a --volumes` | Remove **everything**, including volumes (maximum cleanup).          |
+
+
+### Ultimate cleanup
+
+```bash
+docker system prune -af --volumes
+```
+
+```bash
+alias docker-clean='docker system prune -af --volumes'
+```
+
+## Others
+
+| Command                        | Description                                                  |
+| ------------------------------ | ------------------------------------------------------------ |
+| `docker ps -a`                 | List all containers (running and stopped).                   |
+| `docker images -q`             | List only image IDs (useful for piping into other commands). |
+| `docker stop $(docker ps -aq)` | Stop **all** running containers.                             |
+| `docker rm $(docker ps -aq)`   | Remove **all** containers.                                   |
