@@ -47,3 +47,25 @@ clip() {
   fi
 }
 ```
+
+## History grep - function to quickly search command history
+
+```bash
+histgrep() {
+  if [ -z "$1" ]; then
+    echo "Usage: histgrep <search_term>"
+  else
+    history | grep "$1" | tail
+  fi
+}
+```
+
+Example
+
+```
+$ histgrep docker
+
+1833  docker run -d -p 8080:8080 a9eb47a4ec21
+1834  docker logs 29 -f
+1835  docker ps
+```
