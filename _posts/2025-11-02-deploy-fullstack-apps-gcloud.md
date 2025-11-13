@@ -135,7 +135,7 @@ Below is a one time setup (per project), so after this initial heavy lifting, ev
 gcloud init
 ```
 
-3. Let's now enable the services we'll need now (there will be more later).
+3. Let's enable the services we'll need now (there will be more later).
 
 ```bash
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com sqladmin.googleapis.com
@@ -456,4 +456,275 @@ The allowed origin is passed as an env variable. Go to GitHub environment secret
 
 ## Frontend setup
 
-To be continued...
+React apps are just static files (index.html, JS, CSS, assets) after running `npm run build`. This generate a `/dist` folder with all static files.
+
+Let's start with a simple Dockerfile and build up as we go.
+
+```Dockerfile
+# Base image
+FROM nginx:stable-alpine
+
+# Remove default Nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy custom Nginx config
+COPY nginx.conf /etc/nginx/conf.d/
+
+# Build-time metadata for frontend
+ARG REACT_APP_BUILD_VERSION
+ARG REACT_APP_BUILD_COMMIT
+ARG REACT_APP_BUILD_TIME
+
+ENV REACT_APP_BUILD_VERSION=${REACT_APP_BUILD_VERSION}
+ENV REACT_APP_BUILD_COMMIT=${REACT_APP_BUILD_COMMIT}
+ENV REACT_APP_BUILD_TIME=${REACT_APP_BUILD_TIME}
+
+# Copy React build output
+COPY build/ /usr/share/nginx/html
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+And the `nginx.conf` respectively
+
+```nginx
+server {
+    listen 80;
+
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Prevent access to hidden files
+    location ~ /\. {
+        deny all;
+    }
+
+    # Redirect all traffic to index.html (for React Router)
+    location / {
+        try_files $uri /index.html;
+    }
+
+    # Security headers
+    add_header X-Frame-Options "DENY";
+    add_header X-Content-Type-Options "nosniff";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header Referrer-Policy "no-referrer";
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';";
+
+    # Enable gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+}
+```
+
+Here is an example of how our workflow might look like at this point
+
+
+```yml
+name: Deploy React Frontend
+
+on:
+  push:
+    branches:
+      - staging
+      - production
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.PROJECT_ID }}
+  REGION: ${{ secrets.REGION }}
+  SERVICE_NAME: ${{ github.ref_name == 'production' && 'frontend-production' || 'frontend-staging' }}
+  IMAGE: ${{ secrets.REGION }}-docker.pkg.dev/${{ secrets.PROJECT_ID }}/frontend-repo/frontend:${{ github.ref_name }}-${{ github.sha }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build React app
+        run: npm run build
+
+      - name: Build & push Docker image
+        run: |
+          echo "Building Docker image with version info..."
+          docker build \
+            --build-arg REACT_APP_BUILD_VERSION=${{ github.ref_name }}-${{ github.sha }} \
+            --build-arg REACT_APP_BUILD_COMMIT=${{ github.sha }} \
+            --build-arg REACT_APP_BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            -t $IMAGE .
+
+          docker push $IMAGE
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE_NAME \
+            --image $IMAGE \
+            --region $REGION \
+            --platform managed \
+            --allow-unauthenticated \
+            --labels branch=${{ github.ref_name }},commit=${{ github.sha }}
+```
+
+How this works
+
+- Each branch (staging or production) builds a Docker image tagged with branch + commit SHA.
+- Nginx serves the React static files securely, with proper headers.
+- Cloud Run handles HTTPS automatically.
+- Labels allow you to see the deployed branch/commit in Cloud Run UI.
+
+As you can see, with the FE setup we build the code locally, on the runner and not in the docker container. This way
+
+- Docker doesn’t need to install Node modules or build JS each time.
+- Only copies the already-built `dist/` folder (faster image build)
+- You don’t need Node.js in the final image (just Nginx).
+- If `dist/` is unchanged, image layers can be cached better.
+
+The alternative would be to build inside Docker. But this way:
+
+- The builds will be slower. Every time you build, Node modules are installed inside Docker
+- Larget build image. Node modules installed temporarily increase intermediate layers (though final image is still slim).
+
+The first approach is better for the FE setup because final Docker image is just Nginx + static files, no Node.js, no dev dependencies and CI/CD builds are faster: GitHub Actions caches Node modules, Docker layer just copies `build/`.
+
+At this point, if you try to deploy, you'll probably get an error
+
+> ERROR: (gcloud.run.deploy) The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout.
+
+And even if you don't, you have probably noticed that the port is hardcoded in the nginx config, which is not ideal. We want dynamic port so it always works with whatever GCP exposes.
+
+Unfortunately `nginx.conf` doesn't natively understand env variables and we can't make a substitution like this:
+
+```nginx
+# This won't work!
+server {
+    listen ${PORT}; # <<< The port won't be substituted.
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # ...rest of config...
+}
+```
+
+What we can do instead is modify our dockerfile CMD
+
+```Dockerfile
+...
+CMD sh -c "envsubst '\$PORT' < /etc/nginx/conf.d/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+```
+
+Rename `nginx.conf` to `nginx.conf.template` and have `envsubst` replace `$PORT`
+
+So, the Dockerfile becomes:
+
+```Dockerfile
+FROM nginx:stable-alpine
+
+# Install envsubst
+RUN apk add --no-cache gettext
+
+# Remove default config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy template and React build
+COPY nginx.conf.template /etc/nginx/conf.d/nginx.conf.template
+COPY dist/ /usr/share/nginx/html
+
+# Build metadata
+ARG REACT_APP_BUILD_VERSION
+ARG REACT_APP_BUILD_COMMIT
+ARG REACT_APP_BUILD_TIME
+
+ENV REACT_APP_BUILD_VERSION=${REACT_APP_BUILD_VERSION}
+ENV REACT_APP_BUILD_COMMIT=${REACT_APP_BUILD_COMMIT}
+ENV REACT_APP_BUILD_TIME=${REACT_APP_BUILD_TIME}
+
+# At runtime: substitute $PORT and start nginx
+CMD sh -c "envsubst '\$PORT' < /etc/nginx/conf.d/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+```
+
+Now all should work.
+
+With that out of the way we now need to point our front end services to their corresponding staging/production backends.
+
+Let's add a step after "Install Node.js" and before "Install dependencies"
+
+```yml
+- name: Set frontend build mode
+  run: |
+    if [ "${{ github.ref_name }}" = "production" ]; then
+      echo "MODE=production" >> $GITHUB_ENV
+    else
+      echo "MODE=staging" >> $GITHUB_ENV
+    fi
+```
+
+and modify the "Build react app" step by passing the `mode` as an argument:
+
+```yml
+- name: Build React app
+  run: npm run build -- --mode=$MODE
+```
+
+Now that we have a `mode` switch we can add 3 env files
+
+```bash
+# .env.staging
+
+VITE_API_URL = https://backend-staging-1004123964523.us-central1.run.app
+```
+
+```bash
+# .env.production
+
+VITE_API_URL = https://backend-production-1004123964523.us-central1.run.app
+```
+
+```bash
+# .env.development
+
+VITE_API_URL = http://localhost:8080
+```
+
+> Note: respect the file names!
+
+Now in code we can do things like:
+
+```ts
+const apiUrl = import.meta.env.VITE_API_URL;
+```
+
+At this point you should be able to call the `/versions` endpoint from FE. You can refer to the repo to see an easy way how to do that: [link](https://github.com/venelinpetrov/react-microservice/blob/52d430738da40d8ddda1db111a6dda7842835e05/src/App.tsx#L10)
+
+## Database setup
+
+...to be continued
