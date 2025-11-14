@@ -307,11 +307,6 @@ jobs:
 
     - name: Deploy to Cloud Run
       run: |
-        DB_USER_SECRET=db_user
-        DB_PASS_SECRET=db_password
-        DB_NAME_SECRET=db_name
-        INSTANCE_SECRET=instance_connection
-
         gcloud run deploy $SERVICE_NAME \
           --image $IMAGE \
           --region $REGION \
@@ -425,11 +420,6 @@ To set the allowed origins:
 
     - name: Deploy to Cloud Run
       run: |
-        DB_USER_SECRET=db_user
-        DB_PASS_SECRET=db_password
-        DB_NAME_SECRET=db_name
-        INSTANCE_SECRET=instance_connection
-
         gcloud run deploy $SERVICE_NAME \
           --image $IMAGE \
           --region $REGION \
@@ -727,4 +717,217 @@ At this point you should be able to call the `/versions` endpoint from FE. You c
 
 ## Database setup
 
-...to be continued
+In this part we'll setup MySQL database, which is one of the supported variants in GCP.
+
+### Create MySQL instance
+
+Go to Cloud SQL / Create Instance / MySQL and follow the instructions.
+
+> Note 1: For this tutorial it's enough to choose the most basic settings to save on service costs. This service is paid!
+
+> Note 2: When you choose region, choose the same as your other services, otherwise you'll get errors.
+
+Record the instance connection string. It should be in the format `PROJECT_ID:REGION:INSTANCE_NAME`. Example: `finalstore-476609:us-central1:finalstore-db`.
+
+### Backend / Cloud SQL authentication
+
+Your Cloud Run backend must be allowed to connect to the MySQL instance. Grant your Cloud Run service account this role: `roles/cloudsql.client`. Only this role is required.
+
+
+### Modify Cloud Run backend deployment step to attach the Cloud SQL instance
+
+```yml
+- name: Deploy to Cloud Run
+      run: |
+        DB_USER_SECRET=db_user
+        DB_PASS_SECRET=db_password
+        DB_NAME_SECRET=db_name
+        INSTANCE_SECRET=instance_connection
+
+        gcloud run deploy $SERVICE_NAME \
+          --image $IMAGE \
+          --region $REGION \
+          --platform managed \
+          --allow-unauthenticated \
+          --set-env-vars=ALLOWED_ORIGIN=$ALLOWED_ORIGIN \
+          --set-secrets=DB_USER=$DB_USER_SECRET:latest \
+          --set-secrets=DB_PASSWORD=$DB_PASS_SECRET:latest \
+          --set-secrets=DB_NAME=$DB_NAME_SECRET:latest \
+          --add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION }}
+```
+
+> Note: Don't use put your DB credentials here and don't commit them! We'll use Secret Manager to pass them securely.
+
+### Create secrets in Secret Manager
+
+- In Google Cloud Console, go to Secret Manager / Create Secret, or just use the Search.
+
+| Secret Name                      | Value Example                                    |
+| -------------------------------- | ------------------------------------------------ |
+| `db_user        `                | appuser                                          |
+| `db_password`                    | somepassword                                     |
+| `db_name`                        | final-store-db                                   |
+
+Notice that the instance connection is in GitHub secrets, not in the Secret Manager, because Cloud Run CANNOT read the Cloud SQL instance connection name from Secret Manager. SQL instance name is needed before the container starts, at Cloud Run provisioning time, long before Secret Manager values become available inside the container. And technically this is not a secret because it doesn't grant any access. I just put it in GitHub secrets for convenience
+
+
+### Grant Cloud Run service account access to secrets
+
+Your backend Cloud Run service account: `cloud-run-deployer@<project>.iam.gserviceaccount.com` needs `roles/secretmanager.secretAccessor`.
+
+
+### Update Node.js backend to use secrets
+
+
+```js
+// db.js
+
+import mysql from "mysql2/promise";
+
+const instanceConnection = process.env.INSTANCE_CONNECTION;
+
+const sharedConfig = {
+	user: process.env.DB_USER,
+	password: process.env.DB_PASSWORD,
+	database: process.env.DB_NAME,
+	waitForConnections: true,
+	connectionLimit: 5,
+	queueLimit: 0,
+};
+
+let pool;
+
+if (process.env.NODE_ENV === "development") {
+	pool = mysql.createPool({
+		host: process.env.DB_HOST,
+		port: process.env.DB_PORT,
+		...sharedConfig,
+	});
+} else {
+	pool = mysql.createPool({
+		socketPath: `/cloudsql/${instanceConnection}`,
+		...sharedConfig,
+	});
+}
+
+export default pool;
+
+```
+
+
+### Local development
+
+For local development we can create an `.env.development` file
+
+```bash
+NODE_ENV=development
+PORT=8080
+
+# DB
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=root
+DB_NAME=final_store_local
+DB_PORT=5555
+```
+
+and add this script in `package.json`
+
+```json
+"dev": "dotenv -e .env.development -- nodemon index.js",
+```
+
+You can use a local instance of MySQL and configure the connection (db name, user, password, port etc.) but that requires a MySQL installation on your machine. The second option is with docker
+
+```bash
+docker run --name local-db -e MYSQL_ROOT_PASSWORD=root -p 3306:3306 -d mysql:8 # adjust the values accordingly
+```
+
+Docker compose is even better option.
+
+docker-compose.yml:
+
+```yml
+version: "3.9"
+
+services:
+
+  db:
+    image: mysql:8
+    container_name: final_store_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: final_sotre_local
+
+    ports:
+      - "5555:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: backend-dev
+    depends_on:
+      - db
+    volumes:
+      - .:/usr/src/app
+    environment:
+      DATABASE_URL: "mysql://root:root@db:3306/final_store_local"
+      DB_HOST: db
+      DB_PORT: 3306
+    ports:
+      - "8080:8080"
+    command: ["npm", "run", "dev"]
+
+volumes:
+  db_data:
+
+```
+
+Docker.dev:
+
+```Dockerfile
+FROM node:22-slim
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+RUN npm install
+
+CMD ["npm", "run", "dev"]
+
+```
+
+Create a database and a table in order to test
+
+```bash
+docker exec -it <pid> bash
+```
+
+Then login in mysql
+
+```bash
+mysql -u root -p
+```
+
+```bash
+CREATE DATABASE finalstore_dev;
+
+CREATE TABLE products (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  price DECIMAL(10, 2) NOT NULL
+);
+
+INSERT INTO users (name)
+VALUES ('John Doe');
+```
+
+You can do the same in GCP to test the remote services.
+
+---
+
+glhf;
