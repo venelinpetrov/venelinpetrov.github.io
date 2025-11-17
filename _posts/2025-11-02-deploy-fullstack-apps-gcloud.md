@@ -928,6 +928,16 @@ VALUES ('John Doe');
 
 You can do the same in GCP to test the remote services.
 
+
+## Cleanup
+
+Make sure to stop / delete all services after you are done with the tutorial. Checklist
+
+- Cloud Run services (4 in total)
+- Database service
+- Artifact repository
+- Disable billing account
+
 ---
 
 glhf;
