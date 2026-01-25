@@ -365,4 +365,117 @@ Optional, but this also allows for revoking device-scoped sessions.
 
 What about already-issued access tokens? You can’t reliably yank purely stateless access tokens already out in the wild. Mitigate by keeping access-token TTL short (e.g. 5-10 minutes).
 
+## Password reset
+
+It's a common requirement to log users out, from every browser and device, immediately after they've changed their password. This is what banks and SaaS platforms do.
+
+One of the ways to do it is with __token versioning__.
+
+We have to change several things:
+
+- in our `users` table we have to add one more column called e.g. `token_version`.
+
+    ```java
+    @Column(name = "token_version")
+    private Integer tokenVersion = 0;
+    ```
+- In JWT we'll also set the `ver` claim (e.g. `"ver": 5`), when issuing a new token.
+    ```java
+    // JwtService.java
+
+    var claims = Jwts.claims()
+        .subject(user.getUserId().toString())
+        .add("email", user.getEmail())
+        .add("name", user.getCustomer().getName())
+        .add("roles", roles)
+        .add("ver", user.getTokenVersion()) // <<< This
+        .issuedAt(now)
+        .expiration(expiryDate)
+        .build();
+    ```
+- Compare the versions
+
+    ```java
+    // JwtAuthenticationFilter.java
+
+    var user = userRepository.findById(userId)
+        .orElseThrow(() -> new BadCredentialsException("User not found"));
+
+    if (!jwt.getTokenVersion().equals(user.getTokenVersion())) {
+        throw new BadCredentialsException("Token revoked");
+    }
+    ```
+
+- And finally, increment the version when the `@PostMapping("/me/password")` endpoint is called
+
+    ```java
+    // PasswrodService.java
+
+    @Transactional
+    public void changePassword(Authentication authentication, ChangePasswordRequest request) {
+        if (!request.newPassword().equals(request.confirmPassword())) {
+            throw new BadRequestException("Passwords do not match");
+        }
+
+        Integer userId = Integer.valueOf(authentication.getName());
+
+        var user = userRepository.findById(userId).orElseThrow(UserNotFoundException::new);
+
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new BadRequestException("Password is incorrect");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+
+        user.setTokenVersion(user.getTokenVersion() + 1); // <<< This line
+    }
+    ```
+
+There is one trade-off to this approach though. As can be seen, every request that hits the JWT filter and inclues a valid `Authorization` header will do
+
+```sql
+SELECT token_version, roles, etc FROM users WHERE user_id = ?
+```
+
+For most systems, this is totally fine. A single indexed primary key lookup should take ~1-2 ms on a healthy DB.
+
+When does this become a problem? If you hit 10k+ RPS, or have a multi-region deploy, or maybe when your DB is already overloaded. In these cases, there are several optimizations that can be applied.
+
+1. Minimize what you select
+
+    ```sql
+    @Query("SELECT u.tokenVersion, u.roles FROM User u WHERE u.userId = :id")
+    Optional<UserTokenView> findTokenData(@Param("id") Integer id);
+    ```
+    and use a projection
+
+    ```java
+    public interface UserTokenView {
+        Integer getTokenVersion();
+        Set<Role> getRoles();
+    }
+    ```
+2. Cache token version (via Redis for example)
+
+    - On login / token issue:
+
+        ```
+        cache[userId] = tokenVersion
+        TTL = token expiration
+        ```
+    - On password change
+        - increment DB
+        - Update cache
+
+3. Put version in Auth server
+
+    If you move auth to:
+
+    - Keycloak
+    - Auth0
+    - Cognito
+
+    They do this for you at massive scale.
+
+
 I hope this was helpful, glhf `:)`
