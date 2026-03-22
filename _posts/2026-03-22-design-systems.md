@@ -3,8 +3,6 @@ title: "Design systems"
 date: 2026-03-22
 ---
 
-# Design systems
-
 > A design system is a structured visual language.
 
 More specifically, a design system is a shared set of rules and decisions for how a product looks and behaves. These decisions are encoded as **design tokens**.
