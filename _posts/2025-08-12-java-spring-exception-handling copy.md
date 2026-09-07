@@ -415,7 +415,7 @@ Example JSON response:
   "message": "Validation failed",
   "errors": [
     "name is required",
-    "phne is required"
+    "phone is required"
   ]
 }
 ```
